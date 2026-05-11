@@ -446,13 +446,13 @@ with tab_map:
 
     def _get_map_color(count: int) -> str:
         if count >= 500:
-            return "#FF4500"
+            return "#C0392B"   # deep crimson red
         elif count >= 100:
-            return "#FFD700"
+            return "#D4900A"   # rich amber gold
         elif count >= 20:
-            return "#39FF14"
+            return "#1E8449"   # deep forest green
         else:
-            return "#00BCD4"
+            return "#1A6FA8"   # strong steel blue
 
     if filtered_df.empty:
         st.info("No units match the current filters.")
@@ -513,11 +513,12 @@ with tab_map:
             map_center = [20.5937, 78.9629]
             map_zoom   = 5
 
-        # OpenStreetMap ONLY
+        # Soft grey map tile (CartoDB Voyager — light grey, not dark)
         m = folium.Map(
             location=map_center,
             zoom_start=map_zoom,
-            tiles="OpenStreetMap",
+            tiles="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+            attr='&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
         )
 
         for _, row in agg_df.iterrows():
@@ -551,12 +552,12 @@ with tab_map:
             folium.CircleMarker(
                 location=[row["lat"], row["lon"]],
                 radius=radius,
-                color="rgba(0,0,0,0.2)",
-                weight=1,
+                color="rgba(0,0,0,0.45)",
+                weight=1.5,
                 fill=True,
                 fill_color=color,
-                fill_opacity=0.78,
-                opacity=0.95,
+                fill_opacity=0.88,
+                opacity=1.0,
                 popup=folium.Popup(popup_html, max_width=290),
                 tooltip=f"{name_val}: {count:,} units",
             ).add_to(m)
@@ -584,10 +585,10 @@ with tab_map:
           box-shadow: 0 4px 16px rgba(0,0,0,0.12);
         ">
           <b style="font-size:12px;letter-spacing:0.06em;color:#555770;">{legend_title}</b><br><br>
-          <span style="color:#FF4500;font-size:18px;">●</span>&nbsp; 500+ units<br>
-          <span style="color:#FFD700;font-size:18px;">●</span>&nbsp; 100–500 units<br>
-          <span style="color:#39FF14;font-size:18px;">●</span>&nbsp; 20–100 units<br>
-          <span style="color:#00BCD4;font-size:18px;">●</span>&nbsp; &lt;20 units
+          <span style="color:#C0392B;font-size:18px;">●</span>&nbsp; 500+ units<br>
+          <span style="color:#D4900A;font-size:18px;">●</span>&nbsp; 100–500 units<br>
+          <span style="color:#1E8449;font-size:18px;">●</span>&nbsp; 20–100 units<br>
+          <span style="color:#1A6FA8;font-size:18px;">●</span>&nbsp; &lt;20 units
         </div>
         {{% endmacro %}}
         """.format(legend_title=legend_title)

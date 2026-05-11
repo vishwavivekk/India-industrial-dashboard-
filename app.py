@@ -344,7 +344,7 @@ with st.sidebar:
     )
 
     st.markdown('<div class="filter-divider"></div>', unsafe_allow_html=True)
-    st.caption("Data: Ministry of MSME · Elections 2024")
+    st.caption("Data: Elections 2024")
 
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
@@ -378,7 +378,6 @@ st.markdown(f'<div class="app-subtitle">{subtitle_text}</div>', unsafe_allow_htm
 
 # ── KPI Bar — order: States · Districts · Principal Constituencies · Units ────
 n_states = filtered_df["State name"].nunique()
-n_districts = filtered_df["District Name"].nunique()
 n_pcs   = filtered_df["PC name"].nunique()
 n_units = len(filtered_df)
 
@@ -396,11 +395,6 @@ st.markdown(f"""
     <span class="kpi-icon">🏛️</span>
     <div class="kpi-label">States</div>
     <div class="kpi-value">{n_states:,}</div>
-  </div>
-  <div class="kpi-card">
-    <span class="kpi-icon">📍</span>
-    <div class="kpi-label">Districts</div>
-    <div class="kpi-value">{n_districts:,}</div>
   </div>
   <div class="kpi-card">
     <span class="kpi-icon">🗳️</span>
@@ -761,12 +755,7 @@ with tab_industry:
             st.markdown("#### 📊 Industry Distribution")
 
             if selected_sector == "— Select a sector —":
-                st.markdown("""
-                <div class="placeholder-box">
-                  📌 Select a specific Industry Sector<br>
-                  to see state-wise distribution here
-                </div>
-                """, unsafe_allow_html=True)
+                st.info("Select a sector on the left to see its distribution.")
             else:
                 breakdown_df, label_col = build_sector_breakdown(
                     annexure_df, selected_sector, state_filter

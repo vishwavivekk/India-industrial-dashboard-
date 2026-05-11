@@ -316,8 +316,14 @@ with st.sidebar:
     _pc_mask = pd.Series([True] * len(units_df))
     if state_filter != "All States":
         _pc_mask &= units_df["State name"] == state_filter
+    _pc_vals = (
+        units_df.loc[_pc_mask, "PC name"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
     pc_options = ["All PCs"] + sorted(
-        units_df.loc[_pc_mask, "PC name"].dropna().unique().tolist()
+        v for v in _pc_vals.unique() if v and v.lower() not in ("nan", "none", "")
     )
     pc_filter = st.selectbox(
         "Principal Constituency",
@@ -333,8 +339,14 @@ with st.sidebar:
         _party_mask &= units_df["State name"] == state_filter
     if pc_filter != "All PCs":
         _party_mask &= units_df["PC name"] == pc_filter
+    _party_vals = (
+        units_df.loc[_party_mask, "Winner Party"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
     party_options = ["All Parties"] + sorted(
-        units_df.loc[_party_mask, "Winner Party"].dropna().unique().tolist()
+        v for v in _party_vals.unique() if v and v.lower() not in ("nan", "none", "")
     )
     party_filter = st.selectbox(
         "Winning Party",
@@ -378,7 +390,15 @@ st.markdown(f'<div class="app-subtitle">{subtitle_text}</div>', unsafe_allow_htm
 
 # ── KPI Bar — order: States · Districts · Principal Constituencies · Units ────
 n_states = filtered_df["State name"].nunique()
-n_pcs   = filtered_df["PC name"].nunique()
+n_pcs = (
+    filtered_df["PC name"]
+    .dropna()
+    .astype(str)
+    .str.strip()
+    .replace({"": None, "nan": None, "none": None})
+    .dropna()
+    .nunique()
+)
 n_units = len(filtered_df)
 
 # Context-aware unit label

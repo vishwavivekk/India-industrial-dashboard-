@@ -54,6 +54,14 @@ st.markdown("""
     --input-border:      #ced2db;
   }
 
+  /* Hide Streamlit top header bar (black bar with Share / git icons) */
+  [data-testid="stHeader"],
+  [data-testid="stToolbar"],
+  #MainMenu,
+  header[data-testid="stHeader"],
+  .stDeployButton,
+  footer { visibility: hidden !important; height: 0 !important; }
+
   /* Override Streamlit dark backgrounds */
   .stApp, .stApp > div, [data-testid="stAppViewContainer"] {
     background-color: #f0f2f5 !important;

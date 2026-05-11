@@ -311,31 +311,11 @@ with st.sidebar:
         key="sel_state",
     )
 
-    # ── District ───────────────────────────────────────────────────────────────
-    st.markdown('<div class="filter-label">District</div>', unsafe_allow_html=True)
-    if state_filter != "All States":
-        dist_options = ["All Districts"] + sorted(
-            units_df.loc[units_df["State name"] == state_filter, "District Name"]
-            .dropna().unique().tolist()
-        )
-    else:
-        dist_options = ["All Districts"] + sorted(
-            units_df["District Name"].dropna().unique().tolist()
-        )
-    district_filter = st.selectbox(
-        "District",
-        dist_options,
-        label_visibility="collapsed",
-        key="sel_district",
-    )
-
     # ── Principal Constituency ─────────────────────────────────────────────────
     st.markdown('<div class="filter-label">Principal Constituency</div>', unsafe_allow_html=True)
     _pc_mask = pd.Series([True] * len(units_df))
     if state_filter != "All States":
         _pc_mask &= units_df["State name"] == state_filter
-    if district_filter != "All Districts":
-        _pc_mask &= units_df["District Name"] == district_filter
     pc_options = ["All PCs"] + sorted(
         units_df.loc[_pc_mask, "PC name"].dropna().unique().tolist()
     )
@@ -346,55 +326,39 @@ with st.sidebar:
         key="sel_pc",
     )
 
-    st.markdown('<div class="filter-divider"></div>', unsafe_allow_html=True)
-
-    # ── Radius filter ──────────────────────────────────────────────────────────
-    radius_enabled = False
-    radius_km = 50
-    district_centroid = None
-
-    if district_filter != "All Districts":
-        radius_enabled = st.checkbox("📍 Enable Radius Filter", value=False)
-        if radius_enabled:
-            radius_km = st.slider("Radius (km)", 10, 200, 50, 10)
-            mask_d = units_df["District Name"] == district_filter
-            clat = units_df.loc[mask_d, "latitude"].median()
-            clon = units_df.loc[mask_d, "longitude"].median()
-            if pd.notna(clat) and pd.notna(clon):
-                district_centroid = (clat, clon)
+    # ── Winning Party ──────────────────────────────────────────────────────────
+    st.markdown('<div class="filter-label">Winning Party</div>', unsafe_allow_html=True)
+    _party_mask = pd.Series([True] * len(units_df))
+    if state_filter != "All States":
+        _party_mask &= units_df["State name"] == state_filter
+    if pc_filter != "All PCs":
+        _party_mask &= units_df["PC name"] == pc_filter
+    party_options = ["All Parties"] + sorted(
+        units_df.loc[_party_mask, "Winner Party"].dropna().unique().tolist()
+    )
+    party_filter = st.selectbox(
+        "Winning Party",
+        party_options,
+        label_visibility="collapsed",
+        key="sel_party",
+    )
 
     st.markdown('<div class="filter-divider"></div>', unsafe_allow_html=True)
     st.caption("Data: Ministry of MSME · Elections 2024")
 
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
-def apply_all_filters(df, state_f, district_f, pc_f,
-                      radius_en, radius_k, centroid):
+def apply_all_filters(df, state_f, pc_f, party_f):
     out = df.copy()
     if state_f != "All States":
         out = out[out["State name"] == state_f]
-    if district_f != "All Districts":
-        out = out[out["District Name"] == district_f]
     if pc_f != "All PCs":
         out = out[out["PC name"] == pc_f]
-    if radius_en and centroid:
-        from math import radians, cos, sin, asin, sqrt
-        def haversine(lat, lon):
-            R = 6371
-            dlat = radians(lat - centroid[0])
-            dlon = radians(lon - centroid[1])
-            a = sin(dlat/2)**2 + cos(radians(centroid[0]))*cos(radians(lat))*sin(dlon/2)**2
-            return 2 * R * asin(sqrt(a))
-        valid = out["latitude"].notna() & out["longitude"].notna()
-        out = out[valid & out.apply(
-            lambda r: haversine(r["latitude"], r["longitude"]) <= radius_k, axis=1
-        )]
+    if party_f != "All Parties":
+        out = out[out["Winner Party"] == party_f]
     return out
 
-filtered_df = apply_all_filters(
-    units_df, state_filter, district_filter, pc_filter,
-    radius_enabled, radius_km, district_centroid
-)
+filtered_df = apply_all_filters(units_df, state_filter, pc_filter, party_filter)
 
 
 # ── App Title ─────────────────────────────────────────────────────────────────
@@ -403,12 +367,10 @@ st.markdown('<div class="app-title">🏭 India Industrial Unit Explorer</div>', 
 breadcrumb_parts = []
 if state_filter != "All States":
     breadcrumb_parts.append(f"**{state_filter}**")
-if district_filter != "All Districts":
-    breadcrumb_parts.append(district_filter)
 if pc_filter != "All PCs":
     breadcrumb_parts.append(pc_filter)
-if radius_enabled and district_centroid:
-    breadcrumb_parts.append(f"within {radius_km} km")
+if party_filter != "All Parties":
+    breadcrumb_parts.append(party_filter)
 
 subtitle_text = " › ".join(breadcrumb_parts) if breadcrumb_parts else "All India"
 st.markdown(f'<div class="app-subtitle">{subtitle_text}</div>', unsafe_allow_html=True)
@@ -423,8 +385,6 @@ n_units = len(filtered_df)
 # Context-aware unit label
 if pc_filter != "All PCs":
     unit_label = "Industrial Units (PC)"
-elif district_filter != "All Districts":
-    unit_label = "Industrial Units (District)"
 elif state_filter != "All States":
     unit_label = "Industrial Units (State)"
 else:
@@ -496,18 +456,6 @@ with tab_map:
                 winner_party=("Winner Party", "first"),
             )
             label_col = "PC name"
-        elif district_filter != "All Districts":
-            group_col  = "District Name"
-            agg_kwargs = dict(
-                count=("District Name", "count"),
-                lat=("latitude", "mean"),
-                lon=("longitude", "mean"),
-                state=("State name", "first"),
-                pc_name=("PC name", "first"),
-                winner_name=("Winner Name", "first"),
-                winner_party=("Winner Party", "first"),
-            )
-            label_col = "District Name"
         else:
             group_col  = "District Name"
             agg_kwargs = dict(
@@ -538,10 +486,7 @@ with tab_map:
         agg_df["Margin Votes"] = agg_df["Margin Votes"].fillna(np.nan)
 
         # Map center
-        if district_centroid:
-            map_center = list(district_centroid)
-            map_zoom   = 9
-        elif state_filter != "All States":
+        if state_filter != "All States":
             mask = units_df["State name"] == state_filter
             clat = units_df.loc[mask, "latitude"].median()
             clon = units_df.loc[mask, "longitude"].median()
@@ -605,8 +550,6 @@ with tab_map:
         # Context-aware legend label
         if pc_filter != "All PCs":
             legend_title = "UNITS COUNT (PC VIEW)"
-        elif district_filter != "All Districts":
-            legend_title = "UNITS COUNT (DISTRICT VIEW)"
         elif state_filter != "All States":
             legend_title = "UNITS COUNT (STATE VIEW)"
         else:
@@ -777,7 +720,7 @@ with tab_pc:
 # TAB 4 — Industry Summary
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_industry:
-    sector_totals = build_sector_totals(annexure_df, state_filter, district_filter)
+    sector_totals = build_sector_totals(annexure_df, state_filter, None)
 
     if sector_totals.empty or sector_totals["Total"].sum() == 0:
         st.info("No industry data available for the selected filters.")
@@ -832,7 +775,7 @@ with tab_industry:
                     st.info("No data available for this sector and selection.")
                 else:
                     chart_title = (
-                        f"Top {'Districts' if state_filter != 'All States' else 'States'}"
+                        f"Top {'States' if state_filter == 'All States' else 'Districts'}"
                         f" — {selected_sector}"
                     )
                     fig = make_sector_bar_chart(

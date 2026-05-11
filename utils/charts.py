@@ -99,18 +99,41 @@ def make_sector_bar_chart(df_sector, x_col: str, y_col: str, title: str, sector_
     n = len(df_sector)
     colors = [SECTOR_COLORS[i % len(SECTOR_COLORS)] for i in range(n)]
 
-    fig = go.Figure(go.Bar(
-        x=df_sector[x_col],
-        y=df_sector[y_col],
-        orientation="h",
-        marker_color=colors,
-        marker_line_color="rgba(0,0,0,0.2)",
-        marker_line_width=1,
-        text=df_sector[x_col].apply(lambda v: f"{int(v):,}"),
-        textposition="outside",
-        textfont=dict(color="#1a1a2e", size=11, family="'Segoe UI', Arial, sans-serif"),
-        hovertemplate="<b>%{y}</b><br>Units: %{x:,}<extra></extra>",
-    ))
+    max_val = df_sector[x_col].max() if len(df_sector) > 0 else 1
+
+    # Choose text position per bar: inside (white) for large bars, outside (dark) for small
+    threshold = max_val * 0.25
+    text_positions = [
+        "inside" if v >= threshold else "outside"
+        for v in df_sector[x_col]
+    ]
+    text_colors = [
+        "#ffffff" if v >= threshold else "#1a1a2e"
+        for v in df_sector[x_col]
+    ]
+
+    bars = []
+    for i, (_, row) in enumerate(df_sector.iterrows()):
+        val = row[x_col]
+        bars.append(go.Bar(
+            x=[val],
+            y=[row[y_col]],
+            orientation="h",
+            marker_color=colors[i],
+            marker_line_color="rgba(0,0,0,0.2)",
+            marker_line_width=1,
+            text=[f"{int(val):,}"],
+            textposition="inside" if val >= threshold else "outside",
+            textfont=dict(
+                color="#ffffff" if val >= threshold else "#1a1a2e",
+                size=11,
+                family="'Segoe UI', Arial, sans-serif",
+            ),
+            hovertemplate=f"<b>{row[y_col]}</b><br>Units: {int(val):,}<extra></extra>",
+            showlegend=False,
+        ))
+
+    fig = go.Figure(data=bars)
 
     fig.update_layout(
         **_LIGHT_LAYOUT,
@@ -119,9 +142,14 @@ def make_sector_bar_chart(df_sector, x_col: str, y_col: str, title: str, sector_
             font=dict(size=14, color="#1a1a2e", family="'Segoe UI', Arial, sans-serif"),
             x=0.01,
         ),
-        xaxis=dict(title="Unit Count", **_LIGHT_XAXIS),
+        xaxis=dict(
+            title="Unit Count",
+            range=[0, max_val * 1.15],  # 15% padding so outside labels never clip
+            **_LIGHT_XAXIS,
+        ),
         yaxis=dict(title="", autorange="reversed", **_LIGHT_YAXIS),
-        margin=dict(l=10, r=70, t=50, b=30),
+        barmode="overlay",
+        margin=dict(l=10, r=20, t=50, b=30),
         height=max(380, n * 28),
     )
     return fig

@@ -375,30 +375,63 @@ with st.sidebar:
     # Build sector->subsector map from raw annexure CSV (header=None so no .1/.2 renaming)
     # Row 0 = sector names, Row 1 = subsector descriptions, Row 2+ = data
     @st.cache_data
-    def _build_sector_subsector_map():
+    def _build_sector_data():
+        """
+        Returns:
+          sec_sub_map  : {sector -> [subsector_label, ...]}
+          sec_districts: {sector -> set(district_upper)}
+          sub_districts: {(sector, subsector) -> set(district_upper)}
+        """
         import os
         for path in ["data/Annexure_with_3digit_Sheet1.csv",
                      "./data/Annexure_with_3digit_Sheet1.csv",
                      "/app/data/Annexure_with_3digit_Sheet1.csv"]:
-            if os.path.exists(path):
-                raw = pd.read_csv(path, header=None, nrows=2)
-                hdr = raw.iloc[0].tolist()
-                sub = raw.iloc[1].tolist()
-                skip = {"State", "District", "Latitude", "Longitude"}
-                sec_map = {}
-                for i, h in enumerate(hdr):
-                    h = str(h).strip() if pd.notna(h) else ""
-                    s = str(sub[i]).strip() if pd.notna(sub[i]) else ""
-                    if not h or h in skip:
-                        continue
-                    if h not in sec_map:
-                        sec_map[h] = []
-                    if s and s.lower() not in ("nan", "none", ""):
-                        sec_map[h].append(s)
-                return sec_map
-        return {}
+            if not os.path.exists(path):
+                continue
+            raw = pd.read_csv(path, header=None)
+            hdr = raw.iloc[0].tolist()
+            sub = raw.iloc[1].tolist()
+            data = raw.iloc[2:].reset_index(drop=True)
 
-    _sec_sub_map = _build_sector_subsector_map()
+            skip_names = {"State", "District", "Latitude", "Longitude"}
+            sec_sub_map   = {}   # sector -> [subsector_label]
+            col_sector    = {}   # col_idx -> sector_name
+            col_subsector = {}   # col_idx -> subsector_label
+
+            for i, h in enumerate(hdr):
+                h = str(h).strip() if pd.notna(h) else ""
+                s = str(sub[i]).strip() if pd.notna(sub[i]) else ""
+                if not h or h in skip_names:
+                    continue
+                if h not in sec_sub_map:
+                    sec_sub_map[h] = []
+                if s and s.lower() not in ("nan", "none", ""):
+                    sec_sub_map[h].append(s)
+                    col_sector[i]    = h
+                    col_subsector[i] = s
+
+            # Build district sets per sector and per (sector, subsector)
+            sec_districts = {s: set() for s in sec_sub_map}
+            sub_districts = {}
+
+            for row_idx in range(len(data)):
+                district = str(data.iloc[row_idx, 1]).strip().upper()
+                for col_i, sec in col_sector.items():
+                    val = data.iloc[row_idx, col_i]
+                    try:
+                        if pd.notna(val) and float(val) > 0:
+                            sec_districts[sec].add(district)
+                            sub_key = (sec, col_subsector[col_i])
+                            if sub_key not in sub_districts:
+                                sub_districts[sub_key] = set()
+                            sub_districts[sub_key].add(district)
+                    except (ValueError, TypeError):
+                        pass
+
+            return sec_sub_map, sec_districts, sub_districts
+        return {}, {}, {}
+
+    _sec_sub_map, _sec_districts, _sub_districts = _build_sector_data()
     _all_sectors = list(_sec_sub_map.keys())
 
     st.markdown('<div class="filter-label">Select Sector</div>', unsafe_allow_html=True)
@@ -428,7 +461,10 @@ with st.sidebar:
 
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
-def apply_all_filters(df, state_f, pc_f, party_f):
+def apply_all_filters(df, state_f, pc_f, party_f,
+                      allowed_districts=None):
+    """Filter units_df. allowed_districts is a set of UPPER-CASE district names
+    pre-computed from the annexure for the chosen sector/subsector."""
     out = df.copy()
     if state_f != "All States":
         out = out[out["State name"] == state_f]
@@ -436,9 +472,21 @@ def apply_all_filters(df, state_f, pc_f, party_f):
         out = out[out["PC name"] == pc_f]
     if party_f != "All Parties":
         out = out[out["Winner Party"] == party_f]
+    if allowed_districts is not None:
+        out = out[out["District Name"].str.upper().str.strip().isin(allowed_districts)]
     return out
 
-filtered_df = apply_all_filters(units_df, state_filter, pc_filter, party_filter)
+# Determine district filter from sector/subsector selection
+_allowed_districts = None
+if subsector_filter != "All Subsectors":
+    _allowed_districts = _sub_districts.get((sector_filter, subsector_filter), set())
+elif sector_filter != "All Sectors":
+    _allowed_districts = _sec_districts.get(sector_filter, set())
+
+filtered_df = apply_all_filters(
+    units_df, state_filter, pc_filter, party_filter,
+    allowed_districts=_allowed_districts
+)
 
 
 # ── App Title ─────────────────────────────────────────────────────────────────
@@ -451,10 +499,10 @@ if pc_filter != "All PCs":
     breadcrumb_parts.append(pc_filter)
 if party_filter != "All Parties":
     breadcrumb_parts.append(party_filter)
-if "sector_filter" in dir() and sector_filter != "All Sectors":
-    breadcrumb_parts.append(sector_filter)
-if "subsector_filter" in dir() and subsector_filter != "All Subsectors":
-    breadcrumb_parts.append(subsector_filter)
+if sector_filter != "All Sectors":
+    breadcrumb_parts.append(f"🏭 {sector_filter}")
+if subsector_filter != "All Subsectors":
+    breadcrumb_parts.append(f"↳ {subsector_filter}")
 
 subtitle_text = " › ".join(breadcrumb_parts) if breadcrumb_parts else "All India"
 st.markdown(f'<div class="app-subtitle">{subtitle_text}</div>', unsafe_allow_html=True)
@@ -474,7 +522,11 @@ n_pcs = (
 n_units = len(filtered_df)
 
 # Context-aware unit label
-if pc_filter != "All PCs":
+if subsector_filter != "All Subsectors":
+    unit_label = f"Units · {subsector_filter[:30]}"
+elif sector_filter != "All Sectors":
+    unit_label = f"Units · {sector_filter[:30]}"
+elif pc_filter != "All PCs":
     unit_label = "Industrial Units (PC)"
 elif state_filter != "All States":
     unit_label = "Industrial Units (State)"
@@ -706,9 +758,14 @@ with tab_table:
         # Rename PC name → Principal Constituency in display
         grouped = grouped.rename(columns={"PC name": "Principal Constituency"})
 
+        # Add active filter context as info columns
+        grouped["Sector Filter"] = sector_filter if sector_filter != "All Sectors" else "All Sectors"
+        grouped["Subsector Filter"] = subsector_filter if subsector_filter != "All Subsectors" else "All Subsectors"
+
         display_cols = [
             "State name", "District Name", "Total Units",
-            "Principal Constituency", "Winner Name", "Winner Party", "Margin Votes"
+            "Principal Constituency", "Winner Name", "Winner Party",
+            "Margin Votes", "Sector Filter", "Subsector Filter"
         ]
         st.dataframe(
             grouped[display_cols].reset_index(drop=True),

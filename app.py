@@ -368,37 +368,18 @@ with st.sidebar:
         key="sel_party",
     )
 
-    # ── Industry Sector ───────────────────────────────────────────────────────
+    # ── Industry Sector & Subsector (from Annexure structure) ────────────────
     st.markdown('<div class="filter-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="sector-filter-heading">🏭 Industry Sectors & Subsectors</div>', unsafe_allow_html=True)
 
+    # Build sector->subsector map from annexure_df column structure
+    # Row 0 of annexure = sector names; row 1 = subsector descriptions
+    _ann_raw = annexure_df  # already loaded; row 0 has subsector labels in col headers
+    # Extract sectors from build_sector_totals result
+    _all_sectors = build_sector_totals(annexure_df, "All States", None)["Sector"].tolist()
+    sector_options = ["All Sectors"] + _all_sectors
+
     st.markdown('<div class="filter-label">Select Sector</div>', unsafe_allow_html=True)
-    _sector_mask = pd.Series([True] * len(units_df))
-    if state_filter != "All States":
-        _sector_mask &= units_df["State name"] == state_filter
-    if pc_filter != "All PCs":
-        _sector_mask &= units_df["PC name"] == pc_filter
-    if party_filter != "All Parties":
-        _sector_mask &= units_df["Winner Party"] == party_filter
-
-    # Use NIC_3digit_Desc or similar sector column if available, else fallback
-    _sector_col = None
-    for col in ["NIC_3digit_Desc", "Sector", "industry_sector", "sector_name", "NIC Description"]:
-        if col in units_df.columns:
-            _sector_col = col
-            break
-
-    if _sector_col:
-        _sector_vals = (
-            units_df.loc[_sector_mask, _sector_col]
-            .dropna().astype(str).str.strip()
-        )
-        sector_options = ["All Sectors"] + sorted(
-            v for v in _sector_vals.unique() if v and v.lower() not in ("nan", "none", "")
-        )
-    else:
-        sector_options = ["All Sectors"]
-
     sector_filter = st.selectbox(
         "Select Sector",
         sector_options,
@@ -406,25 +387,30 @@ with st.sidebar:
         key="sel_sector",
     )
 
-    # ── Industry Subsector ────────────────────────────────────────────────────
+    # Subsector options: read from the annexure subsector row
     st.markdown('<div class="filter-label">Select Subsector</div>', unsafe_allow_html=True)
-    _subsector_col = None
-    for col in ["NIC_5digit_Desc", "Subsector", "industry_subsector", "subsector_name", "NIC 5digit Desc"]:
-        if col in units_df.columns:
-            _subsector_col = col
-            break
-
-    if _subsector_col and _sector_col:
-        _sub_mask = _sector_mask.copy()
-        if sector_filter != "All Sectors":
-            _sub_mask &= units_df[_sector_col].astype(str).str.strip() == sector_filter
-        _subsector_vals = (
-            units_df.loc[_sub_mask, _subsector_col]
-            .dropna().astype(str).str.strip()
-        )
-        subsector_options = ["All Subsectors"] + sorted(
-            v for v in _subsector_vals.unique() if v and v.lower() not in ("nan", "none", "")
-        )
+    if sector_filter != "All Sectors":
+        # Find all columns that belong to this sector and get their subsector labels
+        # The annexure header structure: sector cols with .1/.2 suffixes
+        # subsector labels are in the first data row (index 0 after load_annexure)
+        try:
+            _ann_file = "data/Annexure_with_3digit_Sheet1.csv"
+            import os
+            if os.path.exists(_ann_file):
+                _raw = pd.read_csv(_ann_file, header=None, nrows=2)
+                _hdr = _raw.iloc[0].tolist()
+                _sub = _raw.iloc[1].tolist()
+                _subsectors = []
+                for i, h in enumerate(_hdr):
+                    if str(h).strip() == sector_filter and pd.notna(_sub[i]):
+                        label = str(_sub[i]).strip()
+                        if label and label.lower() not in ("nan", ""):
+                            _subsectors.append(label)
+                subsector_options = ["All Subsectors"] + _subsectors
+            else:
+                subsector_options = ["All Subsectors"]
+        except Exception:
+            subsector_options = ["All Subsectors"]
     else:
         subsector_options = ["All Subsectors"]
 
@@ -440,9 +426,7 @@ with st.sidebar:
 
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
-def apply_all_filters(df, state_f, pc_f, party_f,
-                      sector_f=None, subsector_f=None,
-                      sector_col=None, subsector_col=None):
+def apply_all_filters(df, state_f, pc_f, party_f):
     out = df.copy()
     if state_f != "All States":
         out = out[out["State name"] == state_f]
@@ -450,16 +434,9 @@ def apply_all_filters(df, state_f, pc_f, party_f,
         out = out[out["PC name"] == pc_f]
     if party_f != "All Parties":
         out = out[out["Winner Party"] == party_f]
-    if sector_f and sector_f != "All Sectors" and sector_col and sector_col in out.columns:
-        out = out[out[sector_col].astype(str).str.strip() == sector_f]
-    if subsector_f and subsector_f != "All Subsectors" and subsector_col and subsector_col in out.columns:
-        out = out[out[subsector_col].astype(str).str.strip() == subsector_f]
     return out
 
-filtered_df = apply_all_filters(
-    units_df, state_filter, pc_filter, party_filter,
-    sector_filter, subsector_filter, _sector_col, _subsector_col
-)
+filtered_df = apply_all_filters(units_df, state_filter, pc_filter, party_filter)
 
 
 # ── App Title ─────────────────────────────────────────────────────────────────
@@ -472,9 +449,9 @@ if pc_filter != "All PCs":
     breadcrumb_parts.append(pc_filter)
 if party_filter != "All Parties":
     breadcrumb_parts.append(party_filter)
-if sector_filter != "All Sectors":
+if "sector_filter" in dir() and sector_filter != "All Sectors":
     breadcrumb_parts.append(sector_filter)
-if subsector_filter != "All Subsectors":
+if "subsector_filter" in dir() and subsector_filter != "All Subsectors":
     breadcrumb_parts.append(subsector_filter)
 
 subtitle_text = " › ".join(breadcrumb_parts) if breadcrumb_parts else "All India"

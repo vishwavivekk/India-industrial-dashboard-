@@ -368,49 +368,51 @@ with st.sidebar:
         key="sel_party",
     )
 
-    # ── Industry Sector & Subsector (from Annexure structure) ────────────────
+    # ── Industry Sector & Subsector ──────────────────────────────────────────
     st.markdown('<div class="filter-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="sector-filter-heading">🏭 Industry Sectors & Subsectors</div>', unsafe_allow_html=True)
 
-    # Build sector->subsector map from annexure_df column structure
-    # Row 0 of annexure = sector names; row 1 = subsector descriptions
-    _ann_raw = annexure_df  # already loaded; row 0 has subsector labels in col headers
-    # Extract sectors from build_sector_totals result
-    _all_sectors = build_sector_totals(annexure_df, "All States", None)["Sector"].tolist()
-    sector_options = ["All Sectors"] + _all_sectors
+    # Build sector->subsector map from raw annexure CSV (header=None so no .1/.2 renaming)
+    # Row 0 = sector names, Row 1 = subsector descriptions, Row 2+ = data
+    @st.cache_data
+    def _build_sector_subsector_map():
+        import os
+        for path in ["data/Annexure_with_3digit_Sheet1.csv",
+                     "./data/Annexure_with_3digit_Sheet1.csv",
+                     "/app/data/Annexure_with_3digit_Sheet1.csv"]:
+            if os.path.exists(path):
+                raw = pd.read_csv(path, header=None, nrows=2)
+                hdr = raw.iloc[0].tolist()
+                sub = raw.iloc[1].tolist()
+                skip = {"State", "District", "Latitude", "Longitude"}
+                sec_map = {}
+                for i, h in enumerate(hdr):
+                    h = str(h).strip() if pd.notna(h) else ""
+                    s = str(sub[i]).strip() if pd.notna(sub[i]) else ""
+                    if not h or h in skip:
+                        continue
+                    if h not in sec_map:
+                        sec_map[h] = []
+                    if s and s.lower() not in ("nan", "none", ""):
+                        sec_map[h].append(s)
+                return sec_map
+        return {}
+
+    _sec_sub_map = _build_sector_subsector_map()
+    _all_sectors = list(_sec_sub_map.keys())
 
     st.markdown('<div class="filter-label">Select Sector</div>', unsafe_allow_html=True)
     sector_filter = st.selectbox(
         "Select Sector",
-        sector_options,
+        ["All Sectors"] + _all_sectors,
         label_visibility="collapsed",
         key="sel_sector",
     )
 
-    # Subsector options: read from the annexure subsector row
     st.markdown('<div class="filter-label">Select Subsector</div>', unsafe_allow_html=True)
     if sector_filter != "All Sectors":
-        # Find all columns that belong to this sector and get their subsector labels
-        # The annexure header structure: sector cols with .1/.2 suffixes
-        # subsector labels are in the first data row (index 0 after load_annexure)
-        try:
-            _ann_file = "data/Annexure_with_3digit_Sheet1.csv"
-            import os
-            if os.path.exists(_ann_file):
-                _raw = pd.read_csv(_ann_file, header=None, nrows=2)
-                _hdr = _raw.iloc[0].tolist()
-                _sub = _raw.iloc[1].tolist()
-                _subsectors = []
-                for i, h in enumerate(_hdr):
-                    if str(h).strip() == sector_filter and pd.notna(_sub[i]):
-                        label = str(_sub[i]).strip()
-                        if label and label.lower() not in ("nan", ""):
-                            _subsectors.append(label)
-                subsector_options = ["All Subsectors"] + _subsectors
-            else:
-                subsector_options = ["All Subsectors"]
-        except Exception:
-            subsector_options = ["All Subsectors"]
+        _subs = _sec_sub_map.get(sector_filter, [])
+        subsector_options = ["All Subsectors"] + _subs
     else:
         subsector_options = ["All Subsectors"]
 
@@ -816,10 +818,16 @@ with tab_industry:
             st.markdown("#### 🏭 All Industry Sectors (Ranked)")
 
             sector_names    = sector_totals["Sector"].tolist()
+
+            # Pre-select from sidebar filter if one is chosen
+            _preselect_idx = 0
+            if sector_filter != "All Sectors" and sector_filter in sector_names:
+                _preselect_idx = sector_names.index(sector_filter) + 1  # +1 for placeholder
+
             selected_sector = st.selectbox(
                 "Select a sector for drill-down →",
                 ["— Select a sector —"] + sector_names,
-                index=0,
+                index=_preselect_idx,
             )
 
             max_total = sector_totals["Total"].max() if not sector_totals.empty else 1
@@ -854,9 +862,16 @@ with tab_industry:
                 if breakdown_df.empty or breakdown_df["Total"].sum() == 0:
                     st.info("No data available for this sector and selection.")
                 else:
+                    # Filter breakdown by subsector if selected from sidebar
+                    if subsector_filter != "All Subsectors" and label_col in breakdown_df.columns:
+                        _sub_mask = breakdown_df[label_col].astype(str).str.strip() == subsector_filter
+                        if _sub_mask.any():
+                            breakdown_df = breakdown_df[_sub_mask]
+
+                    _sub_suffix = f" › {subsector_filter}" if subsector_filter != "All Subsectors" else ""
                     chart_title = (
                         f"Top {'States' if state_filter == 'All States' else 'Districts'}"
-                        f" — {selected_sector}"
+                        f" — {selected_sector}{_sub_suffix}"
                     )
                     fig = make_sector_bar_chart(
                         breakdown_df,

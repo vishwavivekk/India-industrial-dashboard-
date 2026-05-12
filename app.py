@@ -272,6 +272,19 @@ st.markdown("""
     font-size: 14px;
   }
 
+  /* Sector filter sub-heading */
+  .sector-filter-heading {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin: 4px 0 12px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2e5ed;
+  }
+
   /* App title */
   .app-title {
     font-size: 26px;
@@ -355,12 +368,81 @@ with st.sidebar:
         key="sel_party",
     )
 
+    # ── Industry Sector ───────────────────────────────────────────────────────
+    st.markdown('<div class="filter-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="sector-filter-heading">🏭 Industry Sectors & Subsectors</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="filter-label">Select Sector</div>', unsafe_allow_html=True)
+    _sector_mask = pd.Series([True] * len(units_df))
+    if state_filter != "All States":
+        _sector_mask &= units_df["State name"] == state_filter
+    if pc_filter != "All PCs":
+        _sector_mask &= units_df["PC name"] == pc_filter
+    if party_filter != "All Parties":
+        _sector_mask &= units_df["Winner Party"] == party_filter
+
+    # Use NIC_3digit_Desc or similar sector column if available, else fallback
+    _sector_col = None
+    for col in ["NIC_3digit_Desc", "Sector", "industry_sector", "sector_name", "NIC Description"]:
+        if col in units_df.columns:
+            _sector_col = col
+            break
+
+    if _sector_col:
+        _sector_vals = (
+            units_df.loc[_sector_mask, _sector_col]
+            .dropna().astype(str).str.strip()
+        )
+        sector_options = ["All Sectors"] + sorted(
+            v for v in _sector_vals.unique() if v and v.lower() not in ("nan", "none", "")
+        )
+    else:
+        sector_options = ["All Sectors"]
+
+    sector_filter = st.selectbox(
+        "Select Sector",
+        sector_options,
+        label_visibility="collapsed",
+        key="sel_sector",
+    )
+
+    # ── Industry Subsector ────────────────────────────────────────────────────
+    st.markdown('<div class="filter-label">Select Subsector</div>', unsafe_allow_html=True)
+    _subsector_col = None
+    for col in ["NIC_5digit_Desc", "Subsector", "industry_subsector", "subsector_name", "NIC 5digit Desc"]:
+        if col in units_df.columns:
+            _subsector_col = col
+            break
+
+    if _subsector_col and _sector_col:
+        _sub_mask = _sector_mask.copy()
+        if sector_filter != "All Sectors":
+            _sub_mask &= units_df[_sector_col].astype(str).str.strip() == sector_filter
+        _subsector_vals = (
+            units_df.loc[_sub_mask, _subsector_col]
+            .dropna().astype(str).str.strip()
+        )
+        subsector_options = ["All Subsectors"] + sorted(
+            v for v in _subsector_vals.unique() if v and v.lower() not in ("nan", "none", "")
+        )
+    else:
+        subsector_options = ["All Subsectors"]
+
+    subsector_filter = st.selectbox(
+        "Select Subsector",
+        subsector_options,
+        label_visibility="collapsed",
+        key="sel_subsector",
+    )
+
     st.markdown('<div class="filter-divider"></div>', unsafe_allow_html=True)
     st.caption("Data: Elections 2024")
 
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
-def apply_all_filters(df, state_f, pc_f, party_f):
+def apply_all_filters(df, state_f, pc_f, party_f,
+                      sector_f=None, subsector_f=None,
+                      sector_col=None, subsector_col=None):
     out = df.copy()
     if state_f != "All States":
         out = out[out["State name"] == state_f]
@@ -368,9 +450,16 @@ def apply_all_filters(df, state_f, pc_f, party_f):
         out = out[out["PC name"] == pc_f]
     if party_f != "All Parties":
         out = out[out["Winner Party"] == party_f]
+    if sector_f and sector_f != "All Sectors" and sector_col and sector_col in out.columns:
+        out = out[out[sector_col].astype(str).str.strip() == sector_f]
+    if subsector_f and subsector_f != "All Subsectors" and subsector_col and subsector_col in out.columns:
+        out = out[out[subsector_col].astype(str).str.strip() == subsector_f]
     return out
 
-filtered_df = apply_all_filters(units_df, state_filter, pc_filter, party_filter)
+filtered_df = apply_all_filters(
+    units_df, state_filter, pc_filter, party_filter,
+    sector_filter, subsector_filter, _sector_col, _subsector_col
+)
 
 
 # ── App Title ─────────────────────────────────────────────────────────────────
@@ -383,6 +472,10 @@ if pc_filter != "All PCs":
     breadcrumb_parts.append(pc_filter)
 if party_filter != "All Parties":
     breadcrumb_parts.append(party_filter)
+if sector_filter != "All Sectors":
+    breadcrumb_parts.append(sector_filter)
+if subsector_filter != "All Subsectors":
+    breadcrumb_parts.append(subsector_filter)
 
 subtitle_text = " › ".join(breadcrumb_parts) if breadcrumb_parts else "All India"
 st.markdown(f'<div class="app-subtitle">{subtitle_text}</div>', unsafe_allow_html=True)
@@ -795,4 +888,5 @@ with tab_industry:
                         title=chart_title,
                         sector_name=selected_sector,
                     )
+
                     st.plotly_chart(fig, use_container_width=True)
